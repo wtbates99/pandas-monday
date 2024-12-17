@@ -1,3 +1,9 @@
+class AuthenticationError(Exception):
+    """Raised when there is an error in the Monday.com API response."""
+
+    pass
+
+
 class MondayError(Exception):
     """Base exception for all pandas-monday errors."""
 
