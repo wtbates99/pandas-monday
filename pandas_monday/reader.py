@@ -2,10 +2,11 @@ from typing import Dict, List, Optional, Union, Any
 import pandas as pd
 import tqdm
 from . import exceptions
+from . import api
 
 
 def read_board(
-    executor,  # This will be the monday_pandas instance
+    executor: api.monday_api,
     board_id: Union[str, int],
     columns: Optional[List[str]] = None,
     filter_criteria: Optional[Dict[str, Any]] = None,
@@ -14,7 +15,25 @@ def read_board(
     include_subitems: bool = False,
     page_size: int = 100,
 ) -> pd.DataFrame:
-    """Read a board from Monday.com and return it as a DataFrame."""
+    """Read a board from Monday.com and return it as a DataFrame.
+
+    Args:
+        executor: monday_api executor instance
+        board_id: Unique identifier of the board to read
+        columns: Optional list of columns to include in the output
+        filter_criteria: Optional dictionary of column-value pairs to filter results
+        max_results: Optional maximum number of results to return
+        progress_bar: Whether to display a progress bar during fetching
+        include_subitems: Whether to include subitems in the output
+        page_size: Number of items to fetch per API request
+
+    Returns:
+        pd.DataFrame: DataFrame containing the board data
+
+    Raises:
+        monday_pandas_board_not_found_error: If the specified board doesn't exist
+        monday_pandas_invalid_column_order: If requested columns don't exist
+    """
     meta_query = """
     query ($board_id: ID!) {
         boards(ids: [$board_id]) {
@@ -23,7 +42,7 @@ def read_board(
         }
     }
     """
-    meta_response = executor._execute_query(meta_query, {"board_id": str(board_id)})
+    meta_response = executor.execute_query(meta_query, {"board_id": str(board_id)})
 
     if not meta_response.get("data", {}).get("boards"):
         raise exceptions.monday_pandas_board_not_found_error(
@@ -54,89 +73,109 @@ def read_board(
     }
     """
 
+    def _process_item(
+        item: Dict[str, Any],
+        is_subitem: bool = False,
+        parent_item: Dict[str, Any] = None,
+    ) -> Dict[str, Any]:
+        """Process a single item or subitem and return a formatted record."""
+        record = {
+            "board_id": item["id"],
+            "board_name": board["name"],
+            "group": (
+                parent_item["group"]["title"] if is_subitem else item["group"]["title"]
+            ),
+            "board_item": parent_item["name"] if is_subitem else item["name"],
+            "is_subitem": is_subitem,
+            "subitem_text": item["name"] if is_subitem else None,
+        }
+
+        for col in item["column_values"]:
+            col_title = column_mapping.get(col["id"], col["id"])
+            record[col_title] = col["text"]
+
+        return record
+
     records = []
     cursor = None
     total_items = 0
 
-    with tqdm.tqdm(disable=not (progress_bar and tqdm)) as pbar:
-        while True:
-            variables = {
-                "board_id": str(board_id),
-                "cursor": cursor,
-                "page_size": page_size,
-            }
-
-            response = executor._execute_query(items_query, variables)
-            items_page = response["data"]["boards"][0]["items_page"]
-            items = items_page["items"]
-
-            for item in items:
-                record = {
-                    "board_id": item["id"],
-                    "board_name": board["name"],
-                    "group": item["group"]["title"],
-                    "board_item": item["name"],
-                    "is_subitem": False,
-                    "subitem_text": None,
+    try:
+        with tqdm.tqdm(disable=not (progress_bar and tqdm), unit=" items") as pbar:
+            while True:
+                variables = {
+                    "board_id": str(board_id),
+                    "cursor": cursor,
+                    "page_size": (
+                        min(page_size, max_results - total_items)
+                        if max_results
+                        else page_size
+                    ),
                 }
 
-                for col in item["column_values"]:
-                    col_title = column_mapping.get(col["id"], col["id"])
-                    record[col_title] = col["text"]
+                response = executor.execute_query(items_query, variables)
+                items_page = response["data"]["boards"][0]["items_page"]
+                items = items_page["items"]
 
-                records.append(record)
+                for item in items:
+                    records.append(_process_item(item))
 
-                if include_subitems and item.get("subitems"):
-                    for subitem in item["subitems"]:
-                        subitem_record = {
-                            "board_id": subitem["id"],
-                            "board_name": board["name"],
-                            "group": item["group"]["title"],
-                            "board_item": item["name"],
-                            "is_subitem": True,
-                            "subitem_text": subitem["name"],
-                        }
+                    if include_subitems and item.get("subitems"):
+                        records.extend(
+                            [
+                                _process_item(
+                                    subitem, is_subitem=True, parent_item=item
+                                )
+                                for subitem in item["subitems"]
+                            ]
+                        )
 
-                        for col in subitem["column_values"]:
-                            col_title = column_mapping.get(col["id"], col["id"])
-                            subitem_record[col_title] = col["text"]
+                total_items += len(items)
+                pbar.update(len(items))
+                pbar.set_description(f"Fetching items from board {board_id}")
 
-                        records.append(subitem_record)
+                if max_results and total_items >= max_results:
+                    records = records[:max_results]
+                    break
 
-            total_items += len(items)
-            pbar.update(len(items))
+                cursor = items_page.get("cursor")
+                if not cursor or not items:
+                    break
 
-            if max_results and total_items >= max_results:
-                records = records[:max_results]
-                break
+    except Exception as e:
+        raise exceptions.monday_pandas_api_error(f"Error fetching board data: {str(e)}")
 
-            cursor = items_page.get("cursor")
-            if not cursor or not items:
-                break
-
+    # Create DataFrame and apply post-processing
     df = pd.DataFrame.from_records(records)
-    df = df.drop(columns=["Subitems"])
 
+    # Remove unnecessary columns and apply filters
+    columns_to_drop = ["Subitems"]
     if not include_subitems:
-        if "is_subitem" in df.columns:
-            df = df.drop(columns=["is_subitem", "subitem_text"])
+        columns_to_drop.extend(["is_subitem", "subitem_text"])
+    df = df.drop(columns=[col for col in columns_to_drop if col in df.columns])
 
+    # Apply column selection if specified
     if columns:
-        available_cols = set(df.columns)
-        requested_cols = set(columns)
-        missing_cols = requested_cols - available_cols
-        if missing_cols:
-            raise exceptions.monday_pandas_invalid_column_order(
-                f"Columns not found: {missing_cols}"
-            )
+        _validate_columns(df, columns)
         df = df[columns]
 
+    # Apply filters if specified
     if filter_criteria:
+        _validate_columns(df, filter_criteria.keys())
         for col, value in filter_criteria.items():
-            if col not in df.columns:
-                raise exceptions.monday_pandas_invalid_column_order(
-                    f"Filter column not found: {col}"
-                )
             df = df[df[col] == value]
 
     return df
+
+
+def _validate_columns(
+    df: pd.DataFrame, columns: Union[List[str], Dict[str, Any].keys]
+) -> None:
+    """Validate that all requested columns exist in the DataFrame."""
+    available_cols = set(df.columns)
+    requested_cols = set(columns)
+    missing_cols = requested_cols - available_cols
+    if missing_cols:
+        raise exceptions.monday_pandas_invalid_column_order(
+            f"Columns not found: {missing_cols}"
+        )
