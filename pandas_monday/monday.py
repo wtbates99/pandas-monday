@@ -98,14 +98,23 @@ class MondayClient:
         query = """
         query ($board_id: ID!) {
             boards(ids: [$board_id]) {
-                items_page {
-                    items {
-                        id
-                        name
-                        column_values {
+                name
+                columns {
+                    id
+                    title
+                }
+                groups {
+                    id
+                    title
+                    items_page {
+                        items {
                             id
-                            text
-                            value
+                            name
+                            column_values {
+                                id
+                                text
+                                value
+                            }
                         }
                     }
                 }
@@ -115,29 +124,46 @@ class MondayClient:
 
         variables = {"board_id": str(board_id)}
         response = self._execute_query(query, variables)
-        print(response)
 
         if not response.get("data", {}).get("boards"):
             raise BoardNotFoundError(f"Board {board_id} not found")
 
-        items = response["data"]["boards"][0]["items_page"]["items"]
-        if max_results:
-            items = items[:max_results]
+        board = response["data"]["boards"][0]
+        board_name = board["name"]
+
+        column_mapping = {col["id"]: col["title"] for col in board["columns"]}
 
         records = []
+        total_items = []
+
+        print(board["groups"])
+        for group in board["groups"]:
+            group_items = group["items_page"]["items"]
+            for item in group_items:
+                item["group_title"] = group["title"]
+                total_items.append(item)
+
+        if max_results:
+            total_items = total_items[:max_results]
+
         iterator = (
-            tqdm.tqdm(items) if progress_bar and tqdm and len(items) > 0 else items
+            tqdm.tqdm(total_items)
+            if progress_bar and tqdm and len(total_items) > 0
+            else total_items
         )
 
         for item in iterator:
-            record = {"id": item["id"], "name": item["name"]}
+            record = {
+                "board_id": item["id"],
+                "board_name": board_name,
+                "board_item": item["name"],
+                "group": item["group_title"],  # Include group in output
+            }
+
             for col in item["column_values"]:
-                if col["text"]:
-                    record[col["id"]] = col["text"]
-                elif col["value"]:
-                    record[col["id"]] = col["value"]
-                else:
-                    record[col["id"]] = None
+                col_title = column_mapping.get(col["id"], col["id"])
+                record[col_title] = col["text"] if col["text"] is not None else None
+
             records.append(record)
 
         df = pd.DataFrame.from_records(records)
@@ -157,3 +183,20 @@ class MondayClient:
                 df = df[df[col] == value]
 
         return df
+
+
+if __name__ == "__main__":
+    from pandas_monday.monday import MondayClient
+
+    BOARD_ID = "7014384155"
+
+    df = MondayClient().read_board(
+        board_id=BOARD_ID,
+        # Optional parameters:
+        # columns=['name', 'Status', 'Priority'],  # Specify columns you want
+        # filter_criteria={'Status': 'Done'},      # Filter rows
+        # max_results=100,                         # Limit number of rows
+        progress_bar=True,
+    )
+
+    df.to_csv("monday_board_export.csv", index=False)
