@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
 
 import pandas as pd
 import requests
@@ -62,8 +62,8 @@ class MondayClient:
     def _execute_query(
         self,
         query: str,
-        variables: Optional[Dict] = None,
-    ) -> Dict:
+        variables: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Execute a GraphQL query against the Monday.com API."""
         try:
             response = self.session.post(
@@ -84,29 +84,28 @@ class MondayClient:
 
             return result
         except requests.exceptions.RequestException as e:
-            raise MondayAPIError(f"Request failed:\n{str(e)}")
+            raise MondayAPIError(f"Request failed: {str(e)}") from e
 
     def read_board(
         self,
         board_id: Union[str, int],
         columns: Optional[List[str]] = None,
-        filter_criteria: Optional[Dict] = None,
+        filter_criteria: Optional[Dict[str, Any]] = None,
         max_results: Optional[int] = None,
         progress_bar: bool = True,
     ) -> pd.DataFrame:
+        """Read a board from Monday.com and return it as a DataFrame."""
         query = """
         query ($board_id: ID!) {
             boards(ids: [$board_id]) {
-                id
-                name
                 items_page {
                     items {
                         id
                         name
                         column_values {
                             id
-                            value
                             text
+                            value
                         }
                     }
                 }
@@ -116,6 +115,7 @@ class MondayClient:
 
         variables = {"board_id": str(board_id)}
         response = self._execute_query(query, variables)
+        print(response)
 
         if not response.get("data", {}).get("boards"):
             raise BoardNotFoundError(f"Board {board_id} not found")
@@ -132,10 +132,12 @@ class MondayClient:
         for item in iterator:
             record = {"id": item["id"], "name": item["name"]}
             for col in item["column_values"]:
-                if col["value"] is not None:
+                if col["text"]:
+                    record[col["id"]] = col["text"]
+                elif col["value"]:
                     record[col["id"]] = col["value"]
                 else:
-                    record[col["id"]] = col["text"]
+                    record[col["id"]] = None
             records.append(record)
 
         df = pd.DataFrame.from_records(records)
