@@ -92,14 +92,17 @@ class MondayClient:
         query = """
         query ($board_id: ID!) {
             boards(ids: [$board_id]) {
-                items {
-                    id
-                    name
-                    column_values {
+                id
+                name
+                items_page {
+                    items {
                         id
-                        title
-                        value
-                        text
+                        name
+                        column_values {
+                            id
+                            value
+                            text
+                        }
                     }
                 }
             }
@@ -112,7 +115,7 @@ class MondayClient:
         if not response.get("data", {}).get("boards"):
             raise BoardNotFoundError(f"Board {board_id} not found")
 
-        items = response["data"]["boards"][0]["items"]
+        items = response["data"]["boards"][0]["items_page"]["items"]
         if max_results:
             items = items[:max_results]
 
@@ -124,7 +127,10 @@ class MondayClient:
         for item in iterator:
             record = {"id": item["id"], "name": item["name"]}
             for col in item["column_values"]:
-                record[col["title"]] = col["text"]
+                if col["value"] is not None:
+                    record[col["id"]] = col["value"]
+                else:
+                    record[col["id"]] = col["text"]
             records.append(record)
 
         df = pd.DataFrame.from_records(records)

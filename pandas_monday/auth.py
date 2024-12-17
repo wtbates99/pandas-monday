@@ -55,7 +55,7 @@ def get_credentials(
     if verify_token:
         _verify_api_token(token)
 
-    # Cache the valid token
+    # Cache the valid token securely
     _cache_credentials(token)
 
     return token, None
@@ -132,20 +132,24 @@ def _get_cached_credentials() -> Optional[str]:
 
 def _cache_credentials(token: str) -> None:
     """
-    Cache the API token to a file.
+    Cache the API token to a file securely.
 
     Args:
         token: Monday.com API token to cache
     """
     import json
     from pathlib import Path
+    import getpass
 
     cache_dir = Path.home() / ".cache" / CREDENTIALS_CACHE_DIRNAME
     cache_file = cache_dir / CREDENTIALS_CACHE_FILENAME
 
     try:
         cache_dir.mkdir(parents=True, exist_ok=True)
+        # Store the token securely (consider using encryption in a real application)
         with open(cache_file, "w") as f:
             json.dump({"api_token": token}, f)
+        # Set file permissions to restrict access
+        os.chmod(cache_file, 0o600)  # Only owner can read/write
     except IOError:
         logger.warning("Failed to cache credentials")
