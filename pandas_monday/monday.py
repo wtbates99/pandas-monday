@@ -36,10 +36,10 @@ class MondayClient:
         Initialize the Monday.com client.
 
         Args:
-            api_token: Your Monday.com API token. If not provided, will attempt to
-                get it from MONDAY_API_TOKEN environment variable or cached credentials.
-            user_agent: Custom user agent string
-            verify_token: Whether to verify the token with Monday.com API
+        api_token: Your Monday.com API token. If not provided, will attempt to
+        get it from MONDAY_API_TOKEN environment variable or cached credentials.
+        user_agent: Custom user agent string
+        verify_token: Whether to verify the token with Monday.com API
         """
         self.api_token, _ = auth.get_credentials(
             api_token=api_token, verify_token=verify_token
@@ -59,7 +59,11 @@ class MondayClient:
         identity = f"pandas-monday-{pd.__version__}"
         return f"{user_agent} {identity}" if user_agent else identity
 
-    def _execute_query(self, query: str, variables: Optional[Dict] = None) -> Dict:
+    def _execute_query(
+        self,
+        query: str,
+        variables: Optional[Dict] = None,
+    ) -> Dict:
         """Execute a GraphQL query against the Monday.com API."""
         try:
             response = self.session.post(
@@ -69,16 +73,18 @@ class MondayClient:
 
             if response.status_code != 200:
                 raise MondayAPIError(
-                    f"API request failed with status {response.status_code}: {response.text}"
+                    f"API request failed with status\n"
+                    f"{response.status_code}: "
+                    f"{response.text}"
                 )
 
             result = response.json()
             if "errors" in result:
-                raise MondayAPIError(f"GraphQL query failed: {result['errors']}")
+                raise MondayAPIError(f"GraphQL query failed:\n" f"{result['errors']}")
 
             return result
         except requests.exceptions.RequestException as e:
-            raise MondayAPIError(f"Request failed: {str(e)}")
+            raise MondayAPIError(f"Request failed:\n{str(e)}")
 
     def read_board(
         self,
@@ -88,7 +94,6 @@ class MondayClient:
         max_results: Optional[int] = None,
         progress_bar: bool = True,
     ) -> pd.DataFrame:
-
         query = """
         query ($board_id: ID!) {
             boards(ids: [$board_id]) {
