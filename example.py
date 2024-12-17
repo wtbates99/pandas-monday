@@ -1,5 +1,4 @@
 import pandas_monday as pm
-import os
 
 
 # Create an instance of monday_pandas
@@ -10,7 +9,7 @@ try:
     df = client.read_board(
         board_id=6225157636,
         progress_bar=True,  # Optional: shows progress while fetching
-        include_subitems=True,  # Optional: include subitems if any
+        include_subitems=False,  # Optional: include subitems if any
     )
 
     # Print basic information about the retrieved data

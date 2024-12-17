@@ -1,10 +1,7 @@
 from typing import Dict, List, Optional, Union, Any
 import pandas as pd
 import tqdm
-from .exceptions import (
-    InvalidColumnOrder,
-    BoardNotFoundError,
-)
+from . import exceptions
 
 
 def read_board(
@@ -29,12 +26,13 @@ def read_board(
     meta_response = executor._execute_query(meta_query, {"board_id": str(board_id)})
 
     if not meta_response.get("data", {}).get("boards"):
-        raise BoardNotFoundError(f"Board {board_id} not found")
+        raise exceptions.monday_pandas_board_not_found_error(
+            f"Board {board_id} not found"
+        )
 
     board = meta_response["data"]["boards"][0]
     column_mapping = {col["id"]: col["title"] for col in board["columns"]}
 
-    # Then, fetch items with pagination
     items_query = """
     query ($board_id: ID!, $cursor: String, $page_size: Int!) {
         boards(ids: [$board_id]) {
@@ -128,13 +126,17 @@ def read_board(
         requested_cols = set(columns)
         missing_cols = requested_cols - available_cols
         if missing_cols:
-            raise InvalidColumnOrder(f"Columns not found: {missing_cols}")
+            raise exceptions.monday_pandas_invalid_column_order(
+                f"Columns not found: {missing_cols}"
+            )
         df = df[columns]
 
     if filter_criteria:
         for col, value in filter_criteria.items():
             if col not in df.columns:
-                raise InvalidColumnOrder(f"Filter column not found: {col}")
+                raise exceptions.monday_pandas_invalid_column_order(
+                    f"Filter column not found: {col}"
+                )
             df = df[df[col] == value]
 
     return df

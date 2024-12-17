@@ -5,7 +5,7 @@ Authentication utilities for pandas-monday.
 import os
 from typing import Optional, Tuple
 
-from .exceptions import AuthenticationError
+from . import exceptions
 
 
 def get_credentials(
@@ -37,7 +37,7 @@ def get_credentials(
     token = api_token or os.environ.get(api_token_env_var)
 
     if not token:
-        raise AuthenticationError(
+        raise exceptions.monday_pandas_auth_error(
             f"No API token provided. Either pass api_token parameter or "
             f"set {api_token_env_var} environment variable."
         )
@@ -76,17 +76,19 @@ def _verify_api_token(token: str) -> None:
         )
 
         if response.status_code == 401:
-            raise AuthenticationError("Invalid API token")
+            raise exceptions.monday_pandas_auth_error("Invalid API token")
         elif response.status_code != 200:
-            raise AuthenticationError(
+            raise exceptions.monday_pandas_auth_error(
                 f"API token verification failed with status {response.status_code}"
             )
 
         result = response.json()
         if "errors" in result:
-            raise AuthenticationError(
+            raise exceptions.monday_pandas_auth_error(
                 f"API token verification failed: {result['errors']}"
             )
 
     except requests.exceptions.RequestException as e:
-        raise AuthenticationError(f"API token verification failed: {str(e)}")
+        raise exceptions.monday_pandas_auth_error(
+            f"API token verification failed: {str(e)}"
+        )
