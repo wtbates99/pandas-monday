@@ -9,7 +9,6 @@ def read_board(
     executor: api.monday_api,
     board_id: Union[str, int],
     columns: Optional[List[str]] = None,
-    filter_criteria: Optional[Dict[str, Any]] = None,
     max_results: Optional[int] = None,
     progress_bar: bool = True,
     include_subitems: bool = False,
@@ -145,25 +144,16 @@ def read_board(
     except Exception as e:
         raise exceptions.monday_pandas_api_error(f"Error fetching board data: {str(e)}")
 
-    # Create DataFrame and apply post-processing
     df = pd.DataFrame.from_records(records)
 
-    # Remove unnecessary columns and apply filters
     columns_to_drop = ["Subitems"]
     if not include_subitems:
         columns_to_drop.extend(["is_subitem", "subitem_text"])
     df = df.drop(columns=[col for col in columns_to_drop if col in df.columns])
 
-    # Apply column selection if specified
     if columns:
         _validate_columns(df, columns)
         df = df[columns]
-
-    # Apply filters if specified
-    if filter_criteria:
-        _validate_columns(df, filter_criteria.keys())
-        for col, value in filter_criteria.items():
-            df = df[df[col] == value]
 
     return df
 
