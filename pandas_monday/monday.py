@@ -1,4 +1,3 @@
-import logging
 from typing import Dict, List, Optional, Union, Any
 
 import pandas as pd
@@ -15,8 +14,6 @@ try:
     import tqdm  # noqa
 except ImportError:
     tqdm = None
-
-logger = logging.getLogger(__name__)
 
 
 class MondayClient:
