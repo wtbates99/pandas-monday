@@ -20,20 +20,13 @@ monday_client = MondayClient(api_token="your-api-token")
 # Read a board into a DataFrame
 df = monday_client.read_board(board_id="your-board-id")
 
-# Modify your DataFrame
-# ... your modifications here ...
-
-# Write back to Monday.com
-monday_client.write_board(df, board_id="target-board-id")
 ```
 
 ## Features
 
 - Read Monday.com boards into pandas DataFrames
-- Write pandas DataFrames to new or existing Monday.com boards
 - Support for all Monday.com column types
 - Automatic type conversion between pandas and Monday.com
-- Batch operations for efficient data transfer
 - Error handling and validation
 
 ## Authentication
@@ -42,7 +35,7 @@ To use this package, you'll need a Monday.com API token. You can get one by:
 
 1. Going to your Monday.com account
 2. Clicking on your avatar in the bottom left
-3. Going to Admin > API
+3. Going to Developer > API
 4. Generating a new token
 
 ## Usage Examples
