@@ -97,7 +97,6 @@ class MondayClient:
         page_size: int = 100,
     ) -> pd.DataFrame:
         """Read a board from Monday.com and return it as a DataFrame."""
-        # First, get board metadata and columns
         meta_query = """
         query ($board_id: ID!) {
             boards(ids: [$board_id]) {
@@ -116,7 +115,7 @@ class MondayClient:
 
         # Then, fetch items with pagination
         items_query = """
-        query ($board_id: ID!, $cursor: String, $page_size: Int!, $include_subitems: Boolean!) {
+        query ($board_id: ID!, $cursor: String, $page_size: Int!) {
             boards(ids: [$board_id]) {
                 items_page(limit: $page_size, cursor: $cursor) {
                     cursor
@@ -125,7 +124,7 @@ class MondayClient:
                         name
                         group { title }
                         column_values { id text }
-                        subitems @include(if: $include_subitems) {
+                        subitems {
                             id
                             name
                             column_values { id text }
@@ -146,7 +145,6 @@ class MondayClient:
                     "board_id": str(board_id),
                     "cursor": cursor,
                     "page_size": page_size,
-                    "include_subitems": include_subitems,
                 }
 
                 response = self._execute_query(items_query, variables)
@@ -160,7 +158,7 @@ class MondayClient:
                         "group": item["group"]["title"],
                         "board_item": item["name"],
                         "is_subitem": False,
-                        "parent_item_id": None,
+                        "subitem_text": None,
                     }
 
                     for col in item["column_values"]:
@@ -169,15 +167,15 @@ class MondayClient:
 
                     records.append(record)
 
-                    if include_subitems and "subitems" in item:
+                    if include_subitems and item.get("subitems"):
                         for subitem in item["subitems"]:
                             subitem_record = {
                                 "board_id": subitem["id"],
                                 "board_name": board["name"],
                                 "group": item["group"]["title"],
-                                "board_item": subitem["name"],
+                                "board_item": item["name"],
                                 "is_subitem": True,
-                                "parent_item_id": item["id"],
+                                "subitem_text": subitem["name"],
                             }
 
                             for col in subitem["column_values"]:
@@ -198,6 +196,11 @@ class MondayClient:
                     break
 
         df = pd.DataFrame.from_records(records)
+        df = df.drop(columns=["Subitems"])
+
+        if not include_subitems:
+            if "is_subitem" in df.columns:
+                df = df.drop(columns=["is_subitem", "subitem_text"])
 
         if columns:
             available_cols = set(df.columns)
@@ -227,6 +230,7 @@ if __name__ == "__main__":
         # columns=['name', 'Status', 'Priority'],  # Specify columns you want
         # filter_criteria={'Status': 'Done'},      # Filter rows
         # max_results=100,                         # Limit number of rows
+        include_subitems=False,
         progress_bar=True,
     )
 
