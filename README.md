@@ -1,6 +1,6 @@
 # pandas-monday
 
-A Python package that enables seamless integration between pandas DataFrames and Monday.com boards. This library allows you to easily read data from Monday.com boards into pandas DataFrames and write DataFrames back to Monday.com boards.
+The goal is to create a Python package that enables seamless integration between pandas DataFrames and Monday.com boards. This library allows you to easily read data from Monday.com boards into pandas DataFrames and write DataFrames back to Monday.com boards.
 
 ## Installation
 
@@ -11,13 +11,10 @@ pip install pandas-monday
 ## Quick Start
 
 ```python
-import pandas as pd
-from pandas_monday import MondayClient
+from pandas_monday import monday_pandas
 
-# Initialize the client
-monday_client = MondayClient(api_token="your-api-token")
+monday_client = monday_pandas(api_token="your-api-token")
 
-# Read a board into a DataFrame
 df = monday_client.read_board(board_id="your-board-id")
 
 ```
@@ -25,7 +22,6 @@ df = monday_client.read_board(board_id="your-board-id")
 ## Features
 
 - Read Monday.com boards into pandas DataFrames
-- Support for all Monday.com column types
 - Automatic type conversion between pandas and Monday.com
 - Error handling and validation
 
@@ -47,30 +43,6 @@ To use this package, you'll need a Monday.com API token. You can get one by:
 df = monday_client.read_board(
     board_id="your-board-id",
     columns=['name', 'status', 'numbers']
-)
-
-# Read with filtering
-df = monday_client.read_board(
-    board_id="your-board-id",
-    filter_criteria={'status': 'Done'}
-)
-```
-
-### Writing to Monday.com
-
-```python
-# Create a new board
-monday_client.write_board(
-    df,
-    board_name="New Board",
-    workspace_id="your-workspace-id"
-)
-
-# Update existing board
-monday_client.write_board(
-    df,
-    board_id="existing-board-id",
-    update_method="append"  # or "replace"
 )
 ```
 
