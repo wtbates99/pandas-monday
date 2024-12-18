@@ -41,7 +41,7 @@ def read_board(
         }
     }
     """
-    meta_response = executor.execute_query(meta_query, {"board_id": str(board_id)})
+    meta_response = executor._execute_query(meta_query, {"board_id": str(board_id)})
 
     if not meta_response.get("data", {}).get("boards"):
         raise exceptions.monday_pandas_board_not_found_error(
@@ -112,7 +112,7 @@ def read_board(
                     ),
                 }
 
-                response = executor.execute_query(items_query, variables)
+                response = executor._execute_query(items_query, variables)
                 items_page = response["data"]["boards"][0]["items_page"]
                 items = items_page["items"]
 

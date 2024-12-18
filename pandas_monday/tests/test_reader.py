@@ -90,7 +90,7 @@ COMPREHENSIVE_BOARD = {
 @pytest.fixture
 def mock_api():
     api_mock = Mock(spec=api.monday_api)
-    api_mock.execute_query.return_value = COMPREHENSIVE_BOARD
+    api_mock._execute_query.return_value = COMPREHENSIVE_BOARD
     return api_mock
 
 

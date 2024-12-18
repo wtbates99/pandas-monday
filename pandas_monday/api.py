@@ -54,3 +54,5 @@ class monday_api:
             return result
         except requests.exceptions.RequestException as e:
             raise exceptions.monday_pandas_api_error(f"Request failed: {str(e)}") from e
+
+    _execute_query = execute_query
