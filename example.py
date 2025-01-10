@@ -1,9 +1,7 @@
 import pandas_monday as pm
 import pandas as pd
 
-client = pm.monday_pandas(
-    api_token="eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjQ1NjA0NDMxMCwiYWFpIjoxMSwidWlkIjo1MzY5NjA4NSwiaWFkIjoiMjAyNS0wMS0xMFQwMTozNDoxOC4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MzM3OTc2MywicmduIjoidXNlMSJ9.FsKEjyHY9yDWsZCmdCXmZJvCmXoJ-8xtWSOrG8Um-Xg"
-)
+client = pm.monday_pandas()
 
 BOARD_ID = 8207868466
 
