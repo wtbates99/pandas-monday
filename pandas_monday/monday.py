@@ -3,6 +3,7 @@ from typing import Dict, Optional, Any
 from . import api
 from . import auth
 from . import reader
+from . import writer  # Import the writer module
 
 
 class monday_pandas:
@@ -41,3 +42,7 @@ class monday_pandas:
     def read_board(self, *args, **kwargs):
         """Read a board from Monday.com and return it as a DataFrame."""
         return reader.read_board(self, *args, **kwargs)
+
+    def write_board(self, *args, **kwargs):
+        """Write a DataFrame to a Monday.com board."""
+        return writer.write_board(self, *args, **kwargs)
