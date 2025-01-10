@@ -1,42 +1,208 @@
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, Any
 import pandas as pd
 import tqdm
+import time
 from . import exceptions
+import json
 
 
+# 1. Error Handling Improvements
 def write_board(
     executor,
     board_id: Union[str, int],
     df: pd.DataFrame,
     mode: str = "append",
-    group_id: Optional[str] = None,
+    group_column: Optional[str] = None,
     progress_bar: bool = True,
 ) -> None:
-    """Write a DataFrame to a Monday.com board.
+    """Write a DataFrame to a Monday.com board with improved error handling."""
+    try:
+        # Validate mode
+        if mode not in ["append", "replace"]:
+            raise ValueError("Mode must be either 'append' or 'replace'")
 
-    Args:
-        executor: monday_pandas client instance
-        board_id: Unique identifier of the board to write to
-        df: DataFrame containing the data to write
-        mode: Write mode, either "append" or "replace"
-        group_id: Optional group ID to add items to a specific group
-        progress_bar: Whether to display a progress bar during writing
+        # Fetch board metadata with retry logic
+        max_retries = 3
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                board_metadata = _fetch_board_metadata(executor, board_id)
+                break
+            except exceptions.monday_pandas_api_error as e:
+                retry_count += 1
+                if retry_count == max_retries:
+                    raise exceptions.monday_pandas_api_error(
+                        f"Failed to fetch board metadata after {max_retries} attempts: {str(e)}"
+                    )
+                time.sleep(1)  # Add delay between retries
 
-    Raises:
-        monday_pandas_board_not_found_error: If the specified board doesn't exist
-        monday_pandas_invalid_column_order: If DataFrame columns don't match board columns
-        monday_pandas_api_error: If there's an error during API calls
+        column_mapping = {col["title"]: col["id"] for col in board_metadata["columns"]}
+        group_mapping = {
+            group["title"]: group["id"] for group in board_metadata["groups"]
+        }
+
+        # Validate DataFrame columns
+        missing_columns = set(df.columns) - set(column_mapping.keys())
+        if missing_columns:
+            raise exceptions.monday_pandas_invalid_column_order(
+                f"Columns not found in board: {missing_columns}"
+            )
+
+        # If mode is "replace", clear all existing items
+        if mode == "replace":
+            _clear_board_items(executor, board_id, progress_bar)
+
+        # Add items to the board with chunking
+        chunk_size = 10  # Process items in smaller batches
+        for i in range(0, len(df), chunk_size):
+            df_chunk = df.iloc[i : i + chunk_size]
+            _add_items_to_board(
+                executor,
+                board_id,
+                df_chunk,
+                column_mapping,
+                group_mapping,
+                group_column,
+                progress_bar,
+            )
+
+    except Exception as e:
+        raise exceptions.monday_pandas_api_error(f"Error writing to board: {str(e)}")
+
+
+# 2. Improved Item Creation
+def _add_items_to_board(
+    executor,
+    board_id: Union[str, int],
+    df: pd.DataFrame,
+    column_mapping: Dict[str, str],
+    group_mapping: Dict[str, str],
+    group_column: Optional[str] = None,
+    progress_bar: bool = True,
+) -> None:
+    """Add items from a DataFrame to a board with improved error handling."""
+    # Update mutation to match Monday.com's expected format
+    create_mutation = """
+    mutation ($boardId: ID!, $groupId: String, $itemName: String!, $columnValues: JSON!) {
+        create_item (
+            board_id: $boardId,
+            group_id: $groupId,
+            item_name: $itemName,
+            column_values: $columnValues
+        ) {
+            id
+        }
+    }
     """
-    # Validate mode
-    if mode not in ["append", "replace"]:
-        raise ValueError("Mode must be either 'append' or 'replace'")
 
-    # Fetch board metadata to validate columns
+    retry_delay = 1
+    max_retries = 3
+
+    try:
+        with tqdm.tqdm(disable=not progress_bar, total=len(df), unit=" items") as pbar:
+            for _, row in df.iterrows():
+                retry_count = 0
+                while retry_count < max_retries:
+                    try:
+                        column_values = {}
+                        for col in df.columns:
+                            if (
+                                col == "name"
+                            ):  # Skip name column as it's handled separately
+                                continue
+
+                            value = row[col]
+                            if pd.isna(value) or value == "":
+                                continue
+
+                            col_id = column_mapping[col]
+
+                            # Modified column type handling
+                            if "status" in col.lower():
+                                # Status values need to be sent as a label object
+                                column_values[col_id] = {"label": str(value)}
+                            elif col == "Due date" and value:
+                                try:
+                                    if isinstance(value, str):
+                                        parsed_date = pd.to_datetime(value)
+                                    else:
+                                        parsed_date = pd.Timestamp(value)
+                                    column_values[col_id] = {
+                                        "date": parsed_date.strftime("%Y-%m-%d")
+                                    }
+                                except Exception:
+                                    continue
+                            elif col == "Assignee" and value:
+                                try:
+                                    user_id = str(int(value))
+                                    column_values[col_id] = {
+                                        "personsAndTeams": [{"id": user_id}]
+                                    }
+                                except ValueError:
+                                    continue
+                            else:
+                                # For text and other simple fields
+                                column_values[col_id] = str(value)
+
+                        # Handle group assignment
+                        group_id = None
+                        if group_column and group_column in df.columns:
+                            group_name = row[group_column]
+                            if group_name in group_mapping:
+                                group_id = group_mapping[group_name]
+
+                        variables = {
+                            "boardId": str(
+                                board_id
+                            ),  # Changed from board_id to boardId
+                            "groupId": group_id,  # Changed from group_id to groupId
+                            "itemName": row.get(
+                                "name", "New Item"
+                            ),  # Changed from item_name to itemName
+                            "columnValues": json.dumps(
+                                column_values
+                            ),  # Changed from column_values to columnValues
+                        }
+
+                        print(f"Attempting to create item with variables: {variables}")
+
+                        response = executor._execute_query(create_mutation, variables)
+
+                        if not response.get("data", {}).get("create_item"):
+                            raise exceptions.monday_pandas_api_error(
+                                f"Failed to create item. Response: {response}"
+                            )
+
+                        break  # Success, exit retry loop
+
+                    except exceptions.monday_pandas_api_error as e:
+                        retry_count += 1
+                        print(f"Attempt {retry_count} failed: {str(e)}")
+                        if retry_count == max_retries:
+                            raise exceptions.monday_pandas_api_error(
+                                f"Failed to create item after {max_retries} attempts. "
+                                f"Last error: {str(e)}. "
+                                f"Variables: {variables}"
+                            )
+                        time.sleep(retry_delay)
+
+                pbar.update(1)
+                pbar.set_description(f"Adding items to board {board_id}")
+
+    except Exception as e:
+        raise exceptions.monday_pandas_api_error(
+            f"Error adding items to board: {str(e)}"
+        )
+
+
+def _fetch_board_metadata(executor, board_id: Union[str, int]) -> Dict[str, Any]:
+    """Fetch metadata (columns, groups, etc.) for a board."""
     meta_query = """
     query ($board_id: ID!) {
         boards(ids: [$board_id]) {
             name
             columns { id title }
+            groups { id title }
         }
     }
     """
@@ -47,22 +213,7 @@ def write_board(
             f"Board {board_id} not found"
         )
 
-    board = meta_response["data"]["boards"][0]
-    column_mapping = {col["title"]: col["id"] for col in board["columns"]}
-
-    # Validate DataFrame columns
-    missing_columns = set(df.columns) - set(column_mapping.keys())
-    if missing_columns:
-        raise exceptions.monday_pandas_invalid_column_order(
-            f"Columns not found in board: {missing_columns}"
-        )
-
-    # If mode is "replace", clear all existing items
-    if mode == "replace":
-        _clear_board_items(executor, board_id, progress_bar)
-
-    # Add items to the board
-    _add_items_to_board(executor, board_id, df, column_mapping, group_id, progress_bar)
+    return meta_response["data"]["boards"][0]
 
 
 def _clear_board_items(
@@ -114,43 +265,4 @@ def _clear_board_items(
     except Exception as e:
         raise exceptions.monday_pandas_api_error(
             f"Error clearing board items: {str(e)}"
-        )
-
-
-def _add_items_to_board(
-    executor,
-    board_id: Union[str, int],
-    df: pd.DataFrame,
-    column_mapping: Dict[str, str],
-    group_id: Optional[str] = None,
-    progress_bar: bool = True,
-) -> None:
-    """Add items from a DataFrame to a board."""
-    create_mutation = """
-    mutation ($board_id: ID!, $group_id: String, $item_name: String!, $column_values: JSON!) {
-        create_item (board_id: $board_id, group_id: $group_id, item_name: $item_name, column_values: $column_values) { id }
-    }
-    """
-
-    try:
-        with tqdm.tqdm(disable=not progress_bar, total=len(df), unit=" items") as pbar:
-            for _, row in df.iterrows():
-                column_values = {
-                    column_mapping[col]: str(row[col]) for col in df.columns
-                }
-
-                variables = {
-                    "board_id": str(board_id),
-                    "group_id": group_id,
-                    "item_name": row.get("name", "New Item"),
-                    "column_values": column_values,
-                }
-
-                executor._execute_query(create_mutation, variables)
-                pbar.update(1)
-                pbar.set_description(f"Adding items to board {board_id}")
-
-    except Exception as e:
-        raise exceptions.monday_pandas_api_error(
-            f"Error adding items to board: {str(e)}"
         )
