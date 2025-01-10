@@ -6,22 +6,22 @@ from . import exceptions
 import json
 
 
-# 1. Error Handling Improvements
 def write_board(
     executor,
     board_id: Union[str, int],
     df: pd.DataFrame,
     mode: str = "append",
+    overwrite_type: str = "archive",
     group_column: Optional[str] = None,
     progress_bar: bool = True,
 ) -> None:
     """Write a DataFrame to a Monday.com board with improved error handling."""
     try:
-        # Validate mode
         if mode not in ["append", "replace"]:
             raise ValueError("Mode must be either 'append' or 'replace'")
+        if overwrite_type not in ["archive", "delete"]:
+            raise ValueError("overwrite_type must be either 'archive' or 'delete'")
 
-        # Fetch board metadata with retry logic
         max_retries = 3
         retry_count = 0
         while retry_count < max_retries:
@@ -34,14 +34,13 @@ def write_board(
                     raise exceptions.monday_pandas_api_error(
                         f"Failed to fetch board metadata after {max_retries} attempts: {str(e)}"
                     )
-                time.sleep(1)  # Add delay between retries
+                time.sleep(1)
 
         column_mapping = {col["title"]: col["id"] for col in board_metadata["columns"]}
         group_mapping = {
             group["title"]: group["id"] for group in board_metadata["groups"]
         }
 
-        # Validate DataFrame columns
         missing_columns = set(df.columns) - set(column_mapping.keys())
         if missing_columns:
             raise exceptions.monday_pandas_invalid_column_order(
@@ -50,10 +49,9 @@ def write_board(
 
         # If mode is "replace", clear all existing items
         if mode == "replace":
-            _clear_board_items(executor, board_id, progress_bar)
+            _clear_board_items(executor, overwrite_type, board_id, progress_bar)
 
-        # Add items to the board with chunking
-        chunk_size = 10  # Process items in smaller batches
+        chunk_size = 10
         for i in range(0, len(df), chunk_size):
             df_chunk = df.iloc[i : i + chunk_size]
             _add_items_to_board(
@@ -81,7 +79,6 @@ def _add_items_to_board(
     progress_bar: bool = True,
 ) -> None:
     """Add items from a DataFrame to a board with improved error handling."""
-    # Update mutation to match Monday.com's expected format
     create_mutation = """
     mutation ($boardId: ID!, $groupId: String, $itemName: String!, $columnValues: JSON!) {
         create_item (
@@ -164,8 +161,6 @@ def _add_items_to_board(
                             ),  # Changed from column_values to columnValues
                         }
 
-                        print(f"Attempting to create item with variables: {variables}")
-
                         response = executor._execute_query(create_mutation, variables)
 
                         if not response.get("data", {}).get("create_item"):
@@ -177,7 +172,6 @@ def _add_items_to_board(
 
                     except exceptions.monday_pandas_api_error as e:
                         retry_count += 1
-                        print(f"Attempt {retry_count} failed: {str(e)}")
                         if retry_count == max_retries:
                             raise exceptions.monday_pandas_api_error(
                                 f"Failed to create item after {max_retries} attempts. "
@@ -217,7 +211,7 @@ def _fetch_board_metadata(executor, board_id: Union[str, int]) -> Dict[str, Any]
 
 
 def _clear_board_items(
-    executor, board_id: Union[str, int], progress_bar: bool = True
+    executor, mutation_state: str, board_id: Union[str, int], progress_bar: bool = True
 ) -> None:
     """Clear all items from a board."""
     items_query = """
@@ -230,10 +224,17 @@ def _clear_board_items(
         }
     }
     """
-    delete_mutation = """
-    mutation ($item_id: ID!) {
-        delete_item (item_id: $item_id) { id }
-    }
+    if mutation_state == "archive":
+        mutation = """
+        mutation ($item_id: ID!) {
+            archive_item (item_id: $item_id) { id }
+        }
+        """
+    elif mutation_state == "delete":
+        mutation = """
+        mutation ($item_id: ID!) {
+            delete_item (item_id: $item_id) { id }
+        }
     """
 
     cursor = None
@@ -253,10 +254,10 @@ def _clear_board_items(
                 items = items_page["items"]
 
                 for item in items:
-                    executor._execute_query(delete_mutation, {"item_id": item["id"]})
+                    executor._execute_query(mutation, {"item_id": item["id"]})
                     total_items += 1
                     pbar.update(1)
-                    pbar.set_description(f"Deleting items from board {board_id}")
+                    pbar.set_description(f"Mutating items from board {board_id}")
 
                 cursor = items_page.get("cursor")
                 if not cursor or not items:

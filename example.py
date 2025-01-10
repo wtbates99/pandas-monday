@@ -1,8 +1,11 @@
 import pandas_monday as pm
 import pandas as pd
 
-client = pm.monday_pandas()
-BOARD_ID = 5781809869
+client = pm.monday_pandas(
+    api_token="eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjQ1NjA0NDMxMCwiYWFpIjoxMSwidWlkIjo1MzY5NjA4NSwiaWFkIjoiMjAyNS0wMS0xMFQwMTozNDoxOC4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MzM3OTc2MywicmduIjoidXNlMSJ9.FsKEjyHY9yDWsZCmdCXmZJvCmXoJ-8xtWSOrG8Um-Xg"
+)
+
+BOARD_ID = 8207868466
 
 
 def read_board_example():
@@ -15,23 +18,13 @@ def read_board_example():
 
 # Update your example.py with better error handling
 def write_board_example():
-    data = {
-        "Description": ["Task 1", "Task 2", "Task 3"],
-        "Status": ["Done", "Working on it", "TBD"],
-        "Priority": ["High", "Medium", "Low"],
-        "Assignee": ["", "", ""],
-        "Due date": ["", "", ""],
-        "Time Sink": ["", "", ""],
-        "Department": ["", "", ""],
-        "Files": ["", "", ""],
-        "Google Calendar event": ["", "", ""],
-    }
-    df = pd.DataFrame(data)
+    df = pd.read_csv("data.csv")
 
     client.write_board(
         board_id=BOARD_ID,
         df=df,
         mode="replace",
+        overwrite_type="archive",
     )
     print("DataFrame successfully written to the board.")
 
