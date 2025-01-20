@@ -20,7 +20,7 @@ class monday_pandas:
         api_token: Optional[str] = None,
         user_agent: Optional[str] = None,
         verify_token: bool = True,
-    ):
+    ) -> None:
         """
         Initialize the monday_pandas client.
 
@@ -30,10 +30,8 @@ class monday_pandas:
         user_agent: Custom user agent string
         verify_token: Whether to verify the token with Monday.com API
         """
-        api_token, _ = auth.get_credentials(
-            api_token=api_token, verify_token=verify_token
-        )
-        self.api = api.monday_api(api_token, user_agent)
+        token, _ = auth.get_credentials(api_token=api_token, verify_token=verify_token)
+        self.api = api.monday_api(token, user_agent)
 
     def _execute_query(
         self,

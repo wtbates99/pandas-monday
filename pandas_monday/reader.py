@@ -13,155 +13,96 @@ def read_board(
     include_subitems: bool = False,
     page_size: int = 100,
 ) -> pd.DataFrame:
-    """Read a board from Monday.com and return it as a DataFrame.
-
-    Args:
-        executor: monday_api executor instance
-        board_id: Unique identifier of the board to read
-        columns: Optional list of columns to include in the output
-        filter_criteria: Optional dictionary of column-value pairs to filter results
-        max_results: Optional maximum number of results to return
-        include_subitems: Whether to include subitems in the output
-        page_size: Number of items to fetch per API request
-
-    Returns:
-        pd.DataFrame: DataFrame containing the board data
-
-    Raises:
-        monday_pandas_board_not_found_error: If the specified board doesn't exist
-        monday_pandas_invalid_column_order: If requested columns don't exist
-    """
-    meta_query = """
-    query ($board_id: ID!) {
-        boards(ids: [$board_id]) {
-            name
-            columns { id title }
-        }
-    }
-    """
-    meta_response = executor._execute_query(meta_query, {"board_id": str(board_id)})
-    boards = meta_response.get("data", {}).get("boards", [])
-
+    """Read board -> DataFrame."""
+    meta_q = """query($board_id: ID!) { boards(ids: [$board_id]) { name columns { id title } } }"""
+    meta_r = executor._execute_query(meta_q, {"board_id": str(board_id)})
+    boards = meta_r.get("data", {}).get("boards", [])
     if not boards:
         raise exceptions.monday_pandas_board_not_found_error(
             f"Board {board_id} not found"
         )
-
     board = boards[0]
-    column_mapping = {col["id"]: col["title"] for col in board["columns"]}
-
-    items_query = """
-    query ($board_id: ID!, $cursor: String, $page_size: Int!) {
-        boards(ids: [$board_id]) {
-            items_page(limit: $page_size, cursor: $cursor) {
-                cursor
-                items {
-                    id
-                    name
-                    group { title }
-                    column_values { id text }
-                    subitems {
-                        id
-                        name
-                        column_values { id text }
-                    }
-                }
+    column_mapping = {c["id"]: c["title"] for c in board["columns"]}
+    items_q = """query($board_id: ID!, $cursor: String, $page_size: Int!) {
+      boards(ids: [$board_id]) {
+        items_page(limit: $page_size, cursor: $cursor) {
+          cursor
+          items {
+            id name group { title }
+            column_values { id text }
+            subitems {
+              id name
+              column_values { id text }
             }
+          }
         }
-    }
-    """
+      }
+    }"""
 
     def _process_item(
         item: Dict[str, Any],
         is_subitem: bool = False,
-        parent_item: Optional[Dict[str, Any]] = None,
+        parent: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Process a single item or subitem and return a formatted record."""
-        record = {
+        r = {
             "board_id": item["id"],
             "board_name": board["name"],
             "group": (
-                parent_item["group"]["title"]
-                if is_subitem and parent_item and parent_item.get("group")
-                else item.get("group", {}).get("title", None)
+                parent["group"]["title"]
+                if is_subitem and parent and parent.get("group")
+                else item.get("group", {}).get("title")
             ),
-            "board_item": (
-                parent_item.get("name") if is_subitem and parent_item else item["name"]
-            ),
+            "board_item": parent.get("name") if is_subitem and parent else item["name"],
             "is_subitem": is_subitem,
             "subitem_text": item["name"] if is_subitem else None,
         }
-
         for col in item["column_values"]:
             col_title = column_mapping.get(col["id"], col["id"])
-            record[col_title] = col["text"]
+            r[col_title] = col["text"]
+        return r
 
-        return record
-
-    records = []
-    cursor = None
-    total_items = 0
-
+    recs, cur, total = [], None, 0
     try:
         while True:
-            variables = {
+            vars = {
                 "board_id": str(board_id),
-                "cursor": cursor,
+                "cursor": cur,
                 "page_size": (
-                    min(page_size, max_results - total_items)
-                    if max_results
-                    else page_size
+                    min(page_size, max_results - total) if max_results else page_size
                 ),
             }
-
-            response = executor._execute_query(items_query, variables)
-            items_page = response["data"]["boards"][0]["items_page"]
-            items = items_page["items"]
-
-            for item in items:
-                records.append(_process_item(item))
-
-                if include_subitems and item.get("subitems"):
-                    records.extend(
-                        [
-                            _process_item(subitem, is_subitem=True, parent_item=item)
-                            for subitem in item["subitems"]
-                        ]
-                    )
-
-            total_items += len(items)
-
-            if max_results and total_items >= max_results:
-                records = records[:max_results]
+            resp = executor._execute_query(items_q, vars)
+            page = resp["data"]["boards"][0]["items_page"]
+            items = page["items"]
+            for it in items:
+                recs.append(_process_item(it))
+                if include_subitems and it.get("subitems"):
+                    recs.extend([_process_item(s, True, it) for s in it["subitems"]])
+            total += len(items)
+            if max_results and total >= max_results:
+                recs = recs[:max_results]
                 break
-
-            cursor = items_page.get("cursor")
-            if not cursor or not items:
+            cur = page.get("cursor")
+            if not cur or not items:
                 break
-
     except Exception as e:
         raise exceptions.monday_pandas_api_error(f"Error fetching board data: {str(e)}")
-
-    df = pd.DataFrame.from_records(records)
-
-    columns_to_drop = ["Subitems"]
+    df = pd.DataFrame.from_records(recs)
+    cols_to_drop = ["Subitems"]
     if not include_subitems:
-        columns_to_drop.extend(["is_subitem", "subitem_text"])
-    df = df.drop(columns=[col for col in columns_to_drop if col in df.columns])
-
+        cols_to_drop += ["is_subitem", "subitem_text"]
+    df = df.drop(columns=[c for c in cols_to_drop if c in df.columns])
     if columns:
         _validate_columns(df, columns)
         df = df[columns]
-
     return df
 
 
 def _validate_columns(df: pd.DataFrame, columns: Union[List[str], List[Any]]) -> None:
-    """Validate that all requested columns exist in the DataFrame."""
-    available_cols = set(df.columns)
-    requested_cols = set(columns)
-    missing_cols = requested_cols - available_cols
-    if missing_cols:
+    """Validate columns exist."""
+    av, req = set(df.columns), set(columns)
+    miss = req - av
+    if miss:
         raise exceptions.monday_pandas_invalid_column_order(
-            f"Columns not found: {missing_cols}"
+            f"Columns not found: {miss}"
         )
