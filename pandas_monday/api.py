@@ -1,7 +1,11 @@
-from typing import Dict, Optional, Any
-import requests
+from typing import Any, Dict, Optional, TypeVar
+
 import pandas as pd
+import requests
+
 from . import exceptions
+
+T = TypeVar("T", bound="monday_api")
 
 
 class monday_api:
@@ -45,7 +49,7 @@ class monday_api:
                     f"{response.text}"
                 )
 
-            result = response.json()
+            result: Dict[str, Any] = response.json()
             if "errors" in result:
                 raise exceptions.monday_pandas_api_error(
                     f"GraphQL query failed:\n" f"{result['errors']}"

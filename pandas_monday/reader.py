@@ -1,8 +1,8 @@
-from typing import Dict, List, Optional, Union, Any
+from typing import Any, Dict, List, Optional, Union
+
 import pandas as pd
-import tqdm
-from . import exceptions
-from . import api
+
+from . import api, exceptions
 
 
 def read_board(
@@ -10,7 +10,6 @@ def read_board(
     board_id: Union[str, int],
     columns: Optional[List[str]] = None,
     max_results: Optional[int] = None,
-    progress_bar: bool = True,
     include_subitems: bool = False,
     page_size: int = 100,
 ) -> pd.DataFrame:
@@ -22,7 +21,6 @@ def read_board(
         columns: Optional list of columns to include in the output
         filter_criteria: Optional dictionary of column-value pairs to filter results
         max_results: Optional maximum number of results to return
-        progress_bar: Whether to display a progress bar during fetching
         include_subitems: Whether to include subitems in the output
         page_size: Number of items to fetch per API request
 
@@ -42,13 +40,14 @@ def read_board(
     }
     """
     meta_response = executor._execute_query(meta_query, {"board_id": str(board_id)})
+    boards = meta_response.get("data", {}).get("boards", [])
 
-    if not meta_response.get("data", {}).get("boards"):
+    if not boards:
         raise exceptions.monday_pandas_board_not_found_error(
             f"Board {board_id} not found"
         )
 
-    board = meta_response["data"]["boards"][0]
+    board = boards[0]
     column_mapping = {col["id"]: col["title"] for col in board["columns"]}
 
     items_query = """
@@ -75,16 +74,20 @@ def read_board(
     def _process_item(
         item: Dict[str, Any],
         is_subitem: bool = False,
-        parent_item: Dict[str, Any] = None,
+        parent_item: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Process a single item or subitem and return a formatted record."""
         record = {
             "board_id": item["id"],
             "board_name": board["name"],
             "group": (
-                parent_item["group"]["title"] if is_subitem else item["group"]["title"]
+                parent_item["group"]["title"]
+                if is_subitem and parent_item and parent_item.get("group")
+                else item.get("group", {}).get("title", None)
             ),
-            "board_item": parent_item["name"] if is_subitem else item["name"],
+            "board_item": (
+                parent_item.get("name") if is_subitem and parent_item else item["name"]
+            ),
             "is_subitem": is_subitem,
             "subitem_text": item["name"] if is_subitem else None,
         }
@@ -100,46 +103,41 @@ def read_board(
     total_items = 0
 
     try:
-        with tqdm.tqdm(disable=not (progress_bar and tqdm), unit=" items") as pbar:
-            while True:
-                variables = {
-                    "board_id": str(board_id),
-                    "cursor": cursor,
-                    "page_size": (
-                        min(page_size, max_results - total_items)
-                        if max_results
-                        else page_size
-                    ),
-                }
+        while True:
+            variables = {
+                "board_id": str(board_id),
+                "cursor": cursor,
+                "page_size": (
+                    min(page_size, max_results - total_items)
+                    if max_results
+                    else page_size
+                ),
+            }
 
-                response = executor._execute_query(items_query, variables)
-                items_page = response["data"]["boards"][0]["items_page"]
-                items = items_page["items"]
+            response = executor._execute_query(items_query, variables)
+            items_page = response["data"]["boards"][0]["items_page"]
+            items = items_page["items"]
 
-                for item in items:
-                    records.append(_process_item(item))
+            for item in items:
+                records.append(_process_item(item))
 
-                    if include_subitems and item.get("subitems"):
-                        records.extend(
-                            [
-                                _process_item(
-                                    subitem, is_subitem=True, parent_item=item
-                                )
-                                for subitem in item["subitems"]
-                            ]
-                        )
+                if include_subitems and item.get("subitems"):
+                    records.extend(
+                        [
+                            _process_item(subitem, is_subitem=True, parent_item=item)
+                            for subitem in item["subitems"]
+                        ]
+                    )
 
-                total_items += len(items)
-                pbar.update(len(items))
-                pbar.set_description(f"Fetching items from board {board_id}")
+            total_items += len(items)
 
-                if max_results and total_items >= max_results:
-                    records = records[:max_results]
-                    break
+            if max_results and total_items >= max_results:
+                records = records[:max_results]
+                break
 
-                cursor = items_page.get("cursor")
-                if not cursor or not items:
-                    break
+            cursor = items_page.get("cursor")
+            if not cursor or not items:
+                break
 
     except Exception as e:
         raise exceptions.monday_pandas_api_error(f"Error fetching board data: {str(e)}")
@@ -158,9 +156,7 @@ def read_board(
     return df
 
 
-def _validate_columns(
-    df: pd.DataFrame, columns: Union[List[str], Dict[str, Any].keys]
-) -> None:
+def _validate_columns(df: pd.DataFrame, columns: Union[List[str], List[Any]]) -> None:
     """Validate that all requested columns exist in the DataFrame."""
     available_cols = set(df.columns)
     requested_cols = set(columns)

@@ -1,9 +1,13 @@
-from typing import Dict, Optional, Any
+from typing import Any, Dict, Optional
 
-from . import api
-from . import auth
-from . import reader
-from . import writer  # Import the writer module
+import pandas as pd
+
+from . import (
+    api,
+    auth,
+    reader,
+    writer,  # Import the writer module
+)
 
 
 class monday_pandas:
@@ -39,10 +43,10 @@ class monday_pandas:
         """Execute a GraphQL query against the Monday.com API."""
         return self.api.execute_query(query, variables)
 
-    def read_board(self, *args, **kwargs):
+    def read_board(self, *args: Any, **kwargs: Any) -> pd.DataFrame:
         """Read a board from Monday.com and return it as a DataFrame."""
-        return reader.read_board(self, *args, **kwargs)
+        return reader.read_board(self.api, *args, **kwargs)
 
-    def write_board(self, *args, **kwargs):
+    def write_board(self, *args: Any, **kwargs: Any) -> None:
         """Write a DataFrame to a Monday.com board."""
-        return writer.write_board(self, *args, **kwargs)
+        return writer.write_board(self.api, *args, **kwargs)
