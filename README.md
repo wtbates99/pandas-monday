@@ -8,7 +8,7 @@ The goal is to create a Python package that enables seamless integration between
 Instead, clone the repository and install the requirements:
 
 ```bash
-git clone https://github.com/your-name/pandas-monday.git
+git clone https://github.com/wtbates99/pandas-monday.git
 cd pandas-monday
 pip install -r requirements.txt
 ```
