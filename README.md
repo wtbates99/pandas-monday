@@ -4,8 +4,13 @@ The goal is to create a Python package that enables seamless integration between
 
 ## Installation
 
+**You cannot currently install this package from PyPI using pip install.**
+Instead, clone the repository and install the requirements:
+
 ```bash
-pip install pandas-monday
+git clone https://github.com/your-name/pandas-monday.git
+cd pandas-monday
+pip install -r requirements.txt
 ```
 
 ## Quick Start
