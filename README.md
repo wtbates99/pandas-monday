@@ -1,100 +1,125 @@
 # pandas-monday
 
-The goal is to create a Python package that enables seamless integration between pandas DataFrames and Monday.com boards. This library allows you to easily read data from Monday.com boards into pandas DataFrames and write DataFrames back to Monday.com boards.
+**Move Monday.com board data into pandas, transform it, and write it back.**
 
-## Installation
+[![Python](https://img.shields.io/badge/python-3.x-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![pandas](https://img.shields.io/badge/pandas-DataFrame-150458?logo=pandas)](https://pandas.pydata.org/)
+[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-c9a84c)](LICENSE)
 
-**You cannot currently install this package from PyPI using pip install.**
-Instead, clone the repository and install the requirements:
+`pandas-monday` wraps the Monday.com GraphQL API with a DataFrame-oriented
+interface. Read a board into pandas, use the normal pandas toolchain, and write
+the result back without maintaining GraphQL query strings in application code.
+
+```mermaid
+flowchart LR
+    A[Monday.com board] -->|read_board| B[pandas DataFrame]
+    B --> C[Clean, join, analyze, transform]
+    C -->|write_board| D[Monday.com board]
+```
+
+## Capabilities
+
+- Read boards into pandas DataFrames.
+- Include subitems when reading.
+- Select and order board columns.
+- Write DataFrames back in append or replace workflows.
+- Archive or delete replaced items when explicitly requested.
+- Convert common Monday.com values to DataFrame-friendly representations.
+- Surface authentication, API, board, and column-order errors as package exceptions.
+
+## Install
+
+The package is currently installed from source rather than PyPI:
 
 ```bash
 git clone https://github.com/wtbates99/pandas-monday.git
 cd pandas-monday
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-## Quick Start
+Run scripts from the repository root so Python can import the local
+`pandas_monday` package.
+
+## Authenticate
+
+Prefer an environment variable so tokens do not enter source files or shell
+history:
+
+```bash
+export MONDAY_API_TOKEN="your-token"
+```
 
 ```python
 import pandas_monday as pm
 
-# Initialize client using environment variable MONDAY_API_TOKEN
 client = pm.monday_pandas()
-
-# Or explicitly pass your API token
-client = pm.monday_pandas(api_token="your-api-token")
-
-# Read from a board
-df = client.read_board(board_id="your-board-id")
 ```
 
-## Features
+An explicit token is also accepted:
 
-- Read Monday.com boards into pandas DataFrames
-- Write pandas DataFrames to Monday.com boards
-- Support for subitems
-- Multiple write modes and overwrite options
-- Automatic type conversion between pandas and Monday.com
-- Error handling and validation
+```python
+client = pm.monday_pandas(api_token="your-token")
+```
 
-## Authentication
-
-To use this package, you'll need a Monday.com API token. You can either:
-
-1. Set it as an environment variable named `MONDAY_API_TOKEN`
-2. Pass it directly when initializing the client
-
-To get an API token:
-1. Go to your Monday.com account
-2. Click on your avatar in the bottom left
-3. Go to Developer > API
-4. Generate a new token
-
-## Usage Examples
-
-### Reading from Monday.com
+## Read a board
 
 ```python
 import pandas_monday as pm
 
 client = pm.monday_pandas()
 
-# Basic read
-df = client.read_board(board_id="your-board-id")
-
-# Read with subitems
 df = client.read_board(
-    board_id="your-board-id",
-    include_subitems=True
+    board_id="1234567890",
+    include_subitems=True,
+    columns=["name", "status", "numbers"],
 )
 
-# Read specific columns
-df = client.read_board(
-    board_id="your-board-id",
-    columns=['name', 'status', 'numbers']
-)
+print(df.head())
 ```
 
-### Writing to Monday.com
+## Transform and write
 
 ```python
 import pandas as pd
 import pandas_monday as pm
 
 client = pm.monday_pandas()
+df = pd.read_csv("normalized-projects.csv")
 
-# Read your data
-df = pd.read_csv("data.csv")
-
-# Write to board
 client.write_board(
-    board_id="your-board-id",
+    board_id="1234567890",
     df=df,
-    mode="replace",      # Options: "append", "replace"
-    overwrite_type="archive"  # Options: "archive", "delete"
+    mode="replace",
+    overwrite_type="archive",
 )
 ```
 
-## Contributing
+`replace` is destructive to the target board's current item set. Use a test
+board first, prefer `archive` over `delete`, and verify the DataFrame before
+writing.
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+## Development
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip install pytest
+python -m pytest pandas_monday/tests
+```
+
+Tests mock Monday.com responses and do not require a real API token.
+
+## Status
+
+The library covers the board and column types represented in its test suite.
+Monday.com's API evolves independently, so validate new column types and
+high-volume board behavior before production use.
+
+## License
+
+`pandas-monday` is **source available** under the
+[PolyForm Noncommercial License 1.0.0](LICENSE). Personal and noncommercial
+use is permitted under those terms. Commercial use requires a
+[separate license](COMMERCIAL-LICENSE.md).
+
+Earlier revisions remain governed by the terms under which they were
+published; see [license history](LICENSE_HISTORY.md).
